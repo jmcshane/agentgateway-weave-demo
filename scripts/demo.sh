@@ -2,7 +2,7 @@
 # Sends a three-turn conversation through the gateway to Kimi K2.6 on CoreWeave.
 # All turns share a long system prompt, so later turns usually read most of their
 # input from the prompt cache (hits are best-effort and vary between runs). Run scripts/verify.sh afterwards to read the
-# calls back from Weave and print their trace IDs.
+# conversation back from Weave.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -42,5 +42,5 @@ ask "What is the code for City 7? One sentence."
 ask "And City 42? One sentence."
 
 echo
-echo "Traces: https://forge.coreweave.com/wandb/${WANDB_ENTITY}/${WANDB_PROJECT}/weave/traces"
+echo "Conversations: https://forge.coreweave.com/agent-lens/${WANDB_ENTITY}/${WANDB_PROJECT}/conversations"
 echo "Spans are exported in batches; wait ~10s, then run scripts/verify.sh."

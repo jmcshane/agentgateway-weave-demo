@@ -1,14 +1,14 @@
 # yaml-language-server: $schema=https://agentgateway.dev/schema/config
 #
-# agentgateway -> CoreWeave Serverless Inference, with traces sent to W&B Weave.
+# agentgateway -> CoreWeave Serverless Inference, with traces sent to W&B Weave / Agent Lens.
 # Values written as $-brace env references are substituted from the environment (see .env.example).
 
 frontendPolicies:
   tracing:
-    # Weave OTLP/HTTP ingest
+    # Weave agent-span OTLP/HTTP ingest (Weave Agents view and Agent Lens).
     host: trace.wandb.ai:443
     protocol: http
-    path: /otel/v1/traces
+    path: /agents/otel/v1/traces
     randomSampling: true
     policies:
       backendTLS: {}
@@ -19,59 +19,31 @@ frontendPolicies:
     # Resource attributes: apply to every span this gateway exports.
     resources:
       service.name: '"${GATEWAY_NAME}"'
-      host.name: '"${GATEWAY_NAME}"'
       deployment.environment.name: '"${GATEWAY_ENV}"'
-      wandb.entity: '"${WANDB_ENTITY}"'     # routes spans to this Weave team...
-      wandb.project: '"${WANDB_PROJECT}"'   # ...and project
+      wandb.entity: '"${WANDB_ENTITY}"'
+      wandb.project: '"${WANDB_PROJECT}"'
 
     # Only export LLM calls (drops health checks and other non-LLM traffic).
     filter: 'llm.provider != ""'
 
-    # Span attributes: evaluated per request (CEL) and added to the request span.
+    # agentgateway already sets gen_ai.operation.name, provider, request/response model,
+    # token usage (incl. cache reads and reasoning) and request params.
+    # These add what the gateway cannot know on its own.
     attributes:
-      # --- Weave call fields ---
-      wandb.display_name: '"${GATEWAY_NAME} " + llm.responseModel'
-      weave.span.kind: '"llm"'
-      gen_ai.conversation.id: 'request.headers["x-conversation-id"]'   # -> Weave thread_id
-      wandb.is_turn: 'true'
+      gen_ai.conversation.id: 'request.headers["x-conversation-id"]'
       gen_ai.agent.name: 'request.headers["x-agent-name"]'
+      user.id: 'request.headers["x-user-id"]'
 
-      # --- GenAI semconv fields Weave maps into the call's attributes ---
-      gen_ai.system_instructions: 'toJson(llm.prompt.filter(m, m.role == "system").map(m, {"type": "text", "content": m.content}))'
+      # Read from the response body, because the pinned image leaves its native fields empty.
+      # Omitted when the body is gzip-encoded (the client sent Accept-Encoding: gzip) or streamed.
       gen_ai.response.id: 'json(response.body).id'
-      gen_ai.response.finish_reasons: 'toJson(json(response.body).choices.map(c, c.finish_reason))'
+      gen_ai.response.finish_reasons: 'json(response.body).choices[0].finish_reason'
 
-      # --- Usage. Weave's usage columns also read these older keys. ---
-      gen_ai.usage.prompt_tokens: 'llm.inputTokens'
-      gen_ai.usage.completion_tokens: 'llm.outputTokens'
-      llm.usage.total_tokens: 'llm.totalTokens'
-      gen_ai.usage.reasoning.output_tokens: 'llm.reasoningTokens'
-
-      # --- Prompt/response capture (opt-in; remove these two for sensitive content) ---
+      # Prompt/response capture (on by default; remove these three for sensitive content).
+      gen_ai.system_instructions: 'toJson(llm.prompt.filter(m, m.role == "system").map(m, {"type": "text", "content": m.content}))'
       gen_ai.input.messages: 'toJson(llm.prompt.filter(m, m.role != "system").map(m, {"role": m.role, "parts": [{"type": "text", "content": m.content}]}))'
-      gen_ai.output.messages: 'toJson(llm.completion.map(c, {"role": "assistant", "parts": [{"type": "text", "content": c}], "finish_reason": json(response.body).choices[0].finish_reason}))'
+      gen_ai.output.messages: 'toJson([{"role": "assistant", "parts": llm.completion.filter(c, c != "").map(c, {"type": "text", "content": c}) + (has(llm.toolCalls) ? llm.toolCalls : []).map(t, {"type": "tool_call", "id": t.id, "name": t.name, "arguments": t.arguments})}])'
 
-      # --- Gateway context ---
-      # Weave drops raw span attributes on spans that carry gen_ai.* keys.
-      # Anything under wandb.attributes.* is copied into the call's attributes instead.
-      gateway: '"${GATEWAY_NAME}"'
-      wandb.attributes.gateway: '"${GATEWAY_NAME}"'
-      wandb.attributes.listener: '"llm"'
-      wandb.attributes.protocol: '"llm"'
-      wandb.attributes.environment: '"${GATEWAY_ENV}"'
-      wandb.attributes.client.address: 'source.address'
-      wandb.attributes.http.request.method: 'request.method'
-      wandb.attributes.http.response.status_code: 'response.code'
-      wandb.attributes.url.path: 'request.path'
-      wandb.attributes.network.protocol.version: 'request.version'
-      wandb.attributes.duration: 'string(timestamp(request.endTime) - timestamp(request.startTime))'
-      wandb.attributes.endpoint: 'backend.endpoint'
-      wandb.attributes.user.id: 'request.headers["x-user-id"]'
-      wandb.attributes.original_model: 'llm.originalModel'
-      wandb.attributes.time_to_first_token: 'llm.timeToFirstToken'
-      wandb.attributes.reasoning_tokens: 'llm.reasoningTokens'
-      wandb.attributes.cached_input_tokens: 'llm.cachedInputTokens'
-      wandb.attributes.cost_usd: 'llm.cost.total'
 
 llm:
   port: 4000
