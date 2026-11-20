@@ -19,6 +19,7 @@ frontendPolicies:
     # Resource attributes: apply to every span this gateway exports.
     resources:
       service.name: '"${GATEWAY_NAME}"'
+      host.name: '"${GATEWAY_NAME}"'      # default is default.default.svc.cluster.local
       deployment.environment.name: '"${GATEWAY_ENV}"'
       wandb.entity: '"${WANDB_ENTITY}"'
       wandb.project: '"${WANDB_PROJECT}"'
@@ -33,6 +34,9 @@ frontendPolicies:
       gen_ai.conversation.id: 'request.headers["x-conversation-id"]'
       gen_ai.agent.name: 'request.headers["x-agent-name"]'
       user.id: 'request.headers["x-user-id"]'
+      # Replaces the default "default/default". Replace the value only; don't add
+      # gateway.* keys (see README, "Don't reuse a gateway key as a prefix").
+      gateway: '"${GATEWAY_NAME}"'
 
       # Read from the response body, because the pinned image leaves its native fields empty.
       # Omitted when the body is gzip-encoded (the client sent Accept-Encoding: gzip) or streamed.
